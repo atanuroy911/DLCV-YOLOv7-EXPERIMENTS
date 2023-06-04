@@ -1,0 +1,14 @@
+train: ../datasets/precision-ag/train/images
+val: ../datasets/precision-ag/valid/images
+test: ../datasets/precision-ag/test/images
+
+nc: 6
+names: ['block', 'dirt', 'leaf', 'metal piece', 'obstacles', 'root']
+
+
+roboflow:
+  workspace: purdue-university-niruh
+  project: precision-ag-subterranean
+  version: 4
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/purdue-university-niruh/precision-ag-subterranean/dataset/4
