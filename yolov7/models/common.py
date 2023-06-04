@@ -20,6 +20,8 @@ from utils.plots import color_list, plot_one_box
 from utils.torch_utils import time_synchronized
 
 from models.commonv5 import C3
+from models.litemodel import CBH, ES_Bottleneck, DWConvblock, ADD, RepVGGBlock, LC_Block, \
+    Dense, conv_bn_relu_maxpool, Shuffle_Block, stem, MBConvBlock, mobilev3_bneck
 
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 
