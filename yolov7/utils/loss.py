@@ -1,10 +1,10 @@
 # Loss functions
+from typing import *
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from typing import Optional
 from utils.general import bbox_iou, bbox_alpha_iou, box_iou, box_giou, box_diou, box_ciou, xywh2xyxy
 from utils.torch_utils import is_parallel
 
@@ -149,6 +149,165 @@ class FocalLoss(nn.Module):
             return loss
 
 
+def varifocal_loss(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    weight: Optional[torch.Tensor]=None,
+    alpha: float=0.75,
+    gamma: float=2.0,
+    iou_weighted: bool=True,
+):
+    assert logits.size == labels.size()
+    logits_prob = logits.sigmoid()
+    labels = labels.type_as(logits)
+    if iou_weighted:
+        focal_weight = labels * (labels > 0.0).float() + \
+            alpha * (logits_prob - labels).abs().pow(gamma) * \
+            (labels <= 0.0).float()
+
+    else:
+        focal_weight = (labels > 0.0).float() + \
+            alpha * (logits_prob - labels).abs().pow(gamma) * \
+            (labels <= 0.0).float()
+
+    loss = F.binary_cross_entropy_with_logits(
+        logits, labels, reduction='none') * focal_weight
+    loss = loss * weight if weight is not None else loss
+    return loss
+
+
+class VariFocalLoss(nn.Module):
+    """
+    Args:
+        alpha: a hyperparameter to weight easy and hard samples
+        gamma: a hyperparameter for focusing the easy examples (modulating factor)
+        iou_weighted: whether to weight the loss of the positive samples with the iou target
+        reduction: the output type that can be selected from none, sum and mean
+    Forward:
+        logits: a prediction with torch tensor type and has shape of (N, ...)
+        labels: a label with torch tensor type and has shape of (M, ...)
+    Examples:
+        >>> loss_func = VariFocalLoss()
+        >>> outputs = model(images)
+        >>> loss = loss_func(outputs, labels)
+        >>> loss.backward()
+    """
+    def __init__(
+        self,
+        loss_fcn, 
+        alpha: float=0.75, 
+        gamma: float=2.0, 
+        iou_weighted: bool=True, 
+        reduction: str='mean',
+    ):
+        super(VariFocalLoss, self).__init__()
+        assert reduction in ('mean', 'sum', 'none')
+        assert alpha >= 0.0
+        self.loss_fcn = loss_fcn  # must be nn.BCEWithLogitsLoss()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.iou_weighted = iou_weighted
+        self.reduction = reduction
+        # self.reduction = loss_fcn.reduction
+        # self.loss_fcn.reduction = 'none'  # required to apply FL to each element
+
+    def forward(self, logits, labels):
+        loss = varifocal_loss(logits, labels, self.alpha, self.gamma, self.iou_weighted)
+
+        if self.reduction == 'sum':
+            return loss.sum()
+        elif self.reduction == 'mean':
+            return loss.mean()
+        else:
+            return loss
+
+
+
+
+
+
+
+# class VariFocalLoss(nn.Module):
+#     """Varifocal loss by Zhang et al. https://arxiv.org/abs/2008.13367."""
+
+#     def __init__(self, 
+#                  loss_fcn, 
+#         alpha: float=0.75, 
+#         gamma: float=2.0, 
+#         iou_weighted: bool=True, 
+#         reduction: str='mean'):
+#         """Initialize the VarifocalLoss class."""
+#         super().__init__()
+
+#     def forward(self, pred_score, gt_score, label, alpha=0.75, gamma=2.0):
+#         """Computes varfocal loss."""
+#         weight = alpha * pred_score.sigmoid().pow(gamma) * (1 - label) + gt_score * label
+#         with torch.cuda.amp.autocast(enabled=False):
+#             loss = (F.binary_cross_entropy_with_logits(pred_score.float(), gt_score.float(), reduction='none') *
+#                     weight).mean(1).sum()
+#         return loss
+
+
+# def varifocal_loss(
+#     logits: torch.Tensor,
+#     labels: torch.Tensor,
+#     weight: Optional[torch.Tensor]=None,
+#     alpha: float=0.75,
+#     gamma: float=2.0,
+#     iou_weighted: bool=True,
+# ):
+#     assert logits.size() == labels.size()
+#     logits_prob = logits.sigmoid()
+#     labels = labels.type_as(logits)
+#     if iou_weighted:
+#         focal_weight = labels * (labels > 0.0).float() + \
+#             alpha * (logits_prob - labels).abs().pow(gamma) * \
+#             (labels <= 0.0).float()
+
+#     else:
+#         focal_weight = (labels > 0.0).float() + \
+#             alpha * (logits_prob - labels).abs().pow(gamma) * \
+#             (labels <= 0.0).float()
+
+#     loss = F.binary_cross_entropy_with_logits(
+#         logits, labels, reduction='none') * focal_weight
+#     loss = loss * weight if weight is not None else loss
+#     return loss
+
+
+
+
+
+
+# class VariFocalLoss(nn.Module):
+#     def __init__(
+#         self,
+#         alpha: float=0.75,
+#         gamma: float=2.0,
+#         iou_weighted: bool=True,
+#         reduction: str='mean',
+#     ):
+#         # VariFocal Implementation: https://github.com/hyz-xmaster/VarifocalNet/blob/master/mmdet/models/losses/varifocal_loss.py
+#         super(VariFocalLoss, self).__init__()
+#         assert reduction in ('mean', 'sum', 'none')
+#         assert alpha >= 0.0
+#         self.alpha = alpha
+#         self.gamma = gamma
+#         self.iou_weighted = iou_weighted
+#         self.reduction = reduction
+
+#     def forward(self, logits, labels):
+#         loss = varifocal_loss(logits, labels, self.alpha, self.gamma, self.iou_weighted)
+
+#         if self.reduction == 'sum':
+#             return loss.sum()
+#         elif self.reduction == 'mean':
+#             return loss.mean()
+#         else:
+#             return loss
+
+
+
 class QFocalLoss(nn.Module):
     # Wraps Quality focal loss around existing loss_fcn(), i.e. criteria = FocalLoss(nn.BCEWithLogitsLoss(), gamma=1.5)
     def __init__(self, loss_fcn, gamma=1.5, alpha=0.25):
@@ -173,62 +332,6 @@ class QFocalLoss(nn.Module):
             return loss.sum()
         else:  # 'none'
             return loss
-
-
-def varifocal_loss(
-    logits: torch.Tensor,
-    labels: torch.Tensor,
-    weight: Optional[torch.Tensor]=None,
-    alpha: float=0.75,
-    gamma: float=2.0,
-    iou_weighted: bool=True,
-):
-    assert logits.size() == labels.size()
-    logits_prob = logits.sigmoid()
-    labels = labels.type_as(logits)
-    if iou_weighted:
-        focal_weight = labels * (labels > 0.0).float() + \
-            alpha * (logits_prob - labels).abs().pow(gamma) * \
-            (labels <= 0.0).float()
-
-    else:
-        focal_weight = (labels > 0.0).float() + \
-            alpha * (logits_prob - labels).abs().pow(gamma) * \
-            (labels <= 0.0).float()
-
-    loss = F.binary_cross_entropy_with_logits(
-        logits, labels, reduction='none') * focal_weight
-    loss = loss * weight if weight is not None else loss
-    return loss
-
-
-class VariFocalLoss(nn.Module):
-    def __init__(
-        self,
-        alpha: float=0.75,
-        gamma: float=2.0,
-        iou_weighted: bool=True,
-        reduction: str='mean',
-    ):
-        # VariFocal Implementation: https://github.com/hyz-xmaster/VarifocalNet/blob/master/mmdet/models/losses/varifocal_loss.py
-        super(VariFocalLoss, self).__init__()
-        assert reduction in ('mean', 'sum', 'none')
-        assert alpha >= 0.0
-        self.alpha = alpha
-        self.gamma = gamma
-        self.iou_weighted = iou_weighted
-        self.reduction = reduction
-
-    def forward(self, logits, labels):
-        loss = varifocal_loss(logits, labels, self.alpha, self.gamma, self.iou_weighted)
-
-        if self.reduction == 'sum':
-            return loss.sum()
-        elif self.reduction == 'mean':
-            return loss.mean()
-        else:
-            return loss
-
 
 class RankSort(torch.autograd.Function):
     @staticmethod
@@ -478,9 +581,8 @@ class APLoss(torch.autograd.Function):
 
 class ComputeLoss:
     # Compute losses
-    def __init__(self, model, autobalance=False, varifocal=False):
+    def __init__(self, model, autobalance=False):
         super(ComputeLoss, self).__init__()
-        self.iou_return = True if varifocal is True else False
         device = next(model.parameters()).device  # get model device
         h = model.hyp  # hyperparameters
 
@@ -494,11 +596,8 @@ class ComputeLoss:
         # Focal loss
         g = h['fl_gamma']  # focal loss gamma
         if g > 0:
-            a = h['fl_alpha'] # focal loss alpha
-            if varifocal: # varifocal loss for classification branch
-                BCEcls, BCEobj = VariFocalLoss(alpha=a, gamma=g), VariFocalLoss(BCEobj, gamma=g, alpha=a)
-            else:
-                BCEcls, BCEobj = FocalLoss(BCEcls, gamma=g, alpha=a), FocalLoss(BCEobj, gamma=g, alpha=a)
+            print("VFL Trigger")
+            BCEcls, BCEobj = FocalLoss(BCEcls, g), FocalLoss(BCEobj, g)
 
         det = model.module.model[-1] if is_parallel(model) else model.model[-1]  # Detect() module
         self.balance = {3: [4.0, 1.0, 0.4]}.get(det.nl, [4.0, 1.0, 0.25, 0.06, .02])  # P3-P7
@@ -527,8 +626,7 @@ class ComputeLoss:
                 pxy = ps[:, :2].sigmoid() * 2. - 0.5
                 pwh = (ps[:, 2:4].sigmoid() * 2) ** 2 * anchors[i]
                 pbox = torch.cat((pxy, pwh), 1)  # predicted box
-                # iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True) Uncomment this line and comment out bottom line if you want to get only iou outputs
-                iou_score, iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True, return_iou=self.iou_return)  # iou(prediction, target)
+                iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)  # iou(prediction, target)
                 lbox += (1.0 - iou).mean()  # iou loss
 
                 # Objectness
@@ -539,10 +637,6 @@ class ComputeLoss:
                     t = torch.full_like(ps[:, 5:], self.cn, device=device)  # targets
                     t[range(n), tcls[i]] = self.cp
                     #t[t==self.cp] = iou.detach().clamp(0).type(t.dtype)
-                    if self.iou_return:
-                        label_idx = torch.where(t==1)[1]
-                        for idx, lab in enumerate(label_idx):
-                            t[idx, lab] = iou_score[idx]
                     lcls += self.BCEcls(ps[:, 5:], t)  # BCE
 
                 # Append targets to text file
@@ -622,9 +716,8 @@ class ComputeLoss:
 
 class ComputeLossOTA:
     # Compute losses
-    def __init__(self, model, autobalance=False, varifocal=False):
+    def __init__(self, model, autobalance=False):
         super(ComputeLossOTA, self).__init__()
-        self.iou_return = True if varifocal is True else False
         device = next(model.parameters()).device  # get model device
         h = model.hyp  # hyperparameters
 
@@ -638,11 +731,8 @@ class ComputeLossOTA:
         # Focal loss
         g = h['fl_gamma']  # focal loss gamma
         if g > 0:
-            a = h['fl_alpha'] # focal loss alpha
-            if varifocal: # varifocal loss for classification branch
-                BCEcls, BCEobj = VariFocalLoss(alpha=a, gamma=g), VariFocalLoss(BCEobj, gamma=g, alpha=a)
-            else:
-                BCEcls, BCEobj = FocalLoss(BCEcls, gamma=g, alpha=a), FocalLoss(BCEobj, gamma=g, alpha=a)
+            print("VFL Trigger")
+            BCEcls, BCEobj = FocalLoss(BCEcls, g), FocalLoss(BCEobj, g)
 
         det = model.module.model[-1] if is_parallel(model) else model.model[-1]  # Detect() module
         self.balance = {3: [4.0, 1.0, 0.4]}.get(det.nl, [4.0, 1.0, 0.25, 0.06, .02])  # P3-P7
@@ -675,8 +765,7 @@ class ComputeLossOTA:
                 pbox = torch.cat((pxy, pwh), 1)  # predicted box
                 selected_tbox = targets[i][:, 2:6] * pre_gen_gains[i]
                 selected_tbox[:, :2] -= grid
-                # iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True) Uncomment this line and comment out bottom line if you want to get only iou outputs
-                iou_score, iou = bbox_iou(pbox.T, selected_tbox, x1y1x2y2=False, CIoU=True, return_iou=self.iou_return)  # iou(prediction, target)
+                iou = bbox_iou(pbox.T, selected_tbox, x1y1x2y2=False, CIoU=True)  # iou(prediction, target)
                 lbox += (1.0 - iou).mean()  # iou loss
 
                 # Objectness
@@ -687,10 +776,6 @@ class ComputeLossOTA:
                 if self.nc > 1:  # cls loss (only if multiple classes)
                     t = torch.full_like(ps[:, 5:], self.cn, device=device)  # targets
                     t[range(n), selected_tcls] = self.cp
-                    if self.iou_return:
-                        label_idx = torch.where(t==1)[1]
-                        for idx, lab in enumerate(label_idx):
-                            t[idx, lab] = iou_score[idx]
                     lcls += self.BCEcls(ps[:, 5:], t)  # BCE
 
                 # Append targets to text file
