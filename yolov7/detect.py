@@ -6,6 +6,7 @@ import cv2
 import torch
 import torch.backends.cudnn as cudnn
 from numpy import random
+import csv
 
 from models.experimental import attempt_load
 from utils.datasets import LoadStreams, LoadImages
@@ -16,12 +17,30 @@ from utils.torch_utils import select_device, load_classifier, time_synchronized,
 
 inference = []
 nms = []
+fps = 0
 fps_frame_count = 0
 fps_start_time = time.time()
 
+def save_to_csv(name, fps, avg_inference, avg_nms):
+    csv_path = f'{name}.csv'
+    header = ['Name', 'FPS', 'Average Inference Time (ms)', 'Average NMS (ms)']
+    data = [name, fps, avg_inference, avg_nms]
+    
+    # Check if the CSV file already exists
+    if Path(csv_path).exists():
+        with open(csv_path, 'a', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(data)
+    else:
+        with open(csv_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(header)
+            writer.writerow(data)
+    print(f'Saved results to {csv_path}')
+
 
 def detect(save_img=False):
-    global fps_frame_count, fps_start_time
+    global fps, fps_frame_count, fps_start_time
     source, weights, view_img, save_txt, imgsz, trace = opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size, not opt.no_trace
     save_img = not opt.nosave and not source.endswith('.txt')  # save inference images
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
@@ -154,10 +173,12 @@ def detect(save_img=False):
 
                     # Print FPS on the console
                     print(f'FPS: {fps:.2f}')
+                    save_to_csv(opt.name, fps, float(sum(inference) / len(inference)), float(sum(nms) / len(nms)))
 
                     # Reset FPS variables
                     fps_start_time = time.time()
                     fps_frame_count = 0
+                    
 
             # Save results (image with detections)
             if save_img:
@@ -178,6 +199,7 @@ def detect(save_img=False):
                             save_path += '.mp4'
                         vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                     vid_writer.write(im0)
+                # save_to_csv(opt.name, fps, float(sum(inference) / len(inference)), float(sum(nms) / len(nms)))
 
     if save_txt or save_img:
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ''
@@ -185,6 +207,7 @@ def detect(save_img=False):
 
     print(f'Done. ({time.time() - t0:.3f}s). Average inference time: '
           f'{float(sum(inference) / len(inference))}ms. Average NMS: {float(sum(nms) / len(nms))}')
+
 
 
 if __name__ == '__main__':

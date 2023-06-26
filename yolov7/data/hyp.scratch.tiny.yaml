@@ -13,8 +13,8 @@ obj_pw: 1.0  # obj BCELoss positive_weight
 iou_t: 0.20  # IoU training threshold
 anchor_t: 4.0  # anchor-multiple threshold
 # anchors: 3  # anchors per output layer (0 to ignore)
-fl_gamma: 1.5  # gamma value for focal and varifocal loss (default: 2.0 in retinanet and vfnet)
-fl_alpha: 0.25 # alpha value for focal and varifocal loss (default: 0.25 in retinanet, 0.75 in vfnet)
+fl_gamma: 0.0  # gamma value for focal and varifocal loss (default: 2.0 in retinanet and vfnet)
+fl_alpha: 0.0 # alpha value for focal and varifocal loss (default: 0.25 in retinanet, 0.75 in vfnet)
 hsv_h: 0.015  # image HSV-Hue augmentation (fraction)
 hsv_s: 0.7  # image HSV-Saturation augmentation (fraction)
 hsv_v: 0.4  # image HSV-Value augmentation (fraction)
@@ -29,4 +29,4 @@ mosaic: 1.0  # image mosaic (probability)
 mixup: 0.05  # image mixup (probability)
 copy_paste: 0.0  # image copy paste (probability)
 paste_in: 0.05  # image copy paste (probability), use 0 for faster training
-loss_ota: 1 # use ComputeLossOTA, use 0 for faster training
+loss_ota: 0 # use ComputeLossOTA, use 0 for faster training
